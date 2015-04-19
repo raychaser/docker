@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -12,10 +13,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/image"
-	"github.com/docker/docker/pkg/common"
 	"github.com/docker/docker/pkg/parsers"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
+	"github.com/docker/docker/trust"
 	"github.com/docker/docker/utils"
 	"github.com/docker/libtrust"
 )
@@ -36,8 +39,11 @@ type TagStore struct {
 	sync.Mutex
 	// FIXME: move push/pull-related fields
 	// to a helper type
-	pullingPool map[string]chan struct{}
-	pushingPool map[string]chan struct{}
+	pullingPool     map[string]chan struct{}
+	pushingPool     map[string]chan struct{}
+	registryService *registry.Service
+	eventsService   *events.Events
+	trustService    *trust.TrustStore
 }
 
 type Repository map[string]string
@@ -60,19 +66,30 @@ func (r Repository) Contains(u Repository) bool {
 	return true
 }
 
-func NewTagStore(path string, graph *Graph, key libtrust.PrivateKey) (*TagStore, error) {
+type TagStoreConfig struct {
+	Graph    *Graph
+	Key      libtrust.PrivateKey
+	Registry *registry.Service
+	Events   *events.Events
+	Trust    *trust.TrustStore
+}
+
+func NewTagStore(path string, cfg *TagStoreConfig) (*TagStore, error) {
 	abspath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
 
 	store := &TagStore{
-		path:         abspath,
-		graph:        graph,
-		trustKey:     key,
-		Repositories: make(map[string]Repository),
-		pullingPool:  make(map[string]chan struct{}),
-		pushingPool:  make(map[string]chan struct{}),
+		path:            abspath,
+		graph:           cfg.Graph,
+		trustKey:        cfg.Key,
+		Repositories:    make(map[string]Repository),
+		pullingPool:     make(map[string]chan struct{}),
+		pushingPool:     make(map[string]chan struct{}),
+		registryService: cfg.Registry,
+		eventsService:   cfg.Events,
+		trustService:    cfg.Trust,
 	}
 	// Load the json file if it exists, otherwise create it.
 	if err := store.reload(); os.IsNotExist(err) {
@@ -163,7 +180,7 @@ func (store *TagStore) ImageName(id string) string {
 	if names, exists := store.ByID()[id]; exists && len(names) > 0 {
 		return names[0]
 	}
-	return common.TruncateID(id)
+	return stringid.TruncateID(id)
 }
 
 func (store *TagStore) DeleteAll(id string) error {
@@ -218,7 +235,11 @@ func (store *TagStore) Delete(repoName, ref string) (bool, error) {
 	return deleted, store.save()
 }
 
-func (store *TagStore) Set(repoName, tag, imageName string, force bool) error {
+func (store *TagStore) Tag(repoName, tag, imageName string, force bool) error {
+	return store.SetLoad(repoName, tag, imageName, force, nil)
+}
+
+func (store *TagStore) SetLoad(repoName, tag, imageName string, force bool, out io.Writer) error {
 	img, err := store.LookupImage(imageName)
 	store.Lock()
 	defer store.Unlock()
@@ -241,8 +262,17 @@ func (store *TagStore) Set(repoName, tag, imageName string, force bool) error {
 	repoName = registry.NormalizeLocalName(repoName)
 	if r, exists := store.Repositories[repoName]; exists {
 		repo = r
-		if old, exists := store.Repositories[repoName][tag]; exists && !force {
-			return fmt.Errorf("Conflict: Tag %s is already set to image %s, if you want to replace it, please use -f option", tag, old)
+		if old, exists := store.Repositories[repoName][tag]; exists {
+
+			if !force {
+				return fmt.Errorf("Conflict: Tag %s is already set to image %s, if you want to replace it, please use -f option", tag, old)
+			}
+
+			if old != img.ID && out != nil {
+
+				fmt.Fprintf(out, "The image %s:%s already exists, renaming the old one with ID %s to empty string\n", repoName, tag, old[:12])
+
+			}
 		}
 	} else {
 		repo = make(map[string]string)
@@ -331,7 +361,7 @@ func (store *TagStore) GetRepoRefs() map[string][]string {
 
 	for name, repository := range store.Repositories {
 		for tag, id := range repository {
-			shortID := common.TruncateID(id)
+			shortID := stringid.TruncateID(id)
 			reporefs[shortID] = append(reporefs[shortID], utils.ImageReference(name, tag))
 		}
 	}

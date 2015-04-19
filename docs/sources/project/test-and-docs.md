@@ -128,7 +128,7 @@ Run the entire test suite on your current repository:
 If you are working inside a Docker development container, you use the
 `hack/make.sh` script to run tests. The `hack/make.sh` script doesn't
 have a single target that runs all the tests. Instead, you provide a single
-commmand line with multiple targets that does the same thing.
+command line with multiple targets that does the same thing.
 
 Try this now.
 
@@ -159,15 +159,16 @@ Most test targets require that you build these precursor targets first:
 
 ## Running individual or multiple named tests 
 
+We use [gocheck](https://labix.org/gocheck) for our integration-cli tests. 
 You can use the `TESTFLAGS` environment variable to run a single test. The
 flag's value is passed as arguments to the `go test` command. For example, from
 your local host you can run the `TestBuild` test with this command:
 
-    $ TESTFLAGS='-test.run ^TestBuild$' make test
+    $ TESTFLAGS='-check.f DockerSuite.TestBuild*' make test
 
 To run the same test inside your Docker development container, you do this:
 
-    root@5f8630b873fe:/go/src/github.com/docker/docker# TESTFLAGS='-run ^TestBuild$' hack/make.sh
+    root@5f8630b873fe:/go/src/github.com/docker/docker# TESTFLAGS='-check.f TestBuild*' hack/make.sh
 
 ## If tests under Boot2Docker fail due to disk space errors
 
@@ -249,7 +250,7 @@ can browse the docs.
 
 1. In a terminal, change to the root of your `docker-fork` repository.
 
-        $ cd ~/repos/dry-run-test
+        $ cd ~/repos/docker-fork
 
 2. Make sure you are in your feature branch.
 

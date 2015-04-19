@@ -5,7 +5,7 @@ set -o pipefail
 
 usage() {
 	cat >&2 <<'EOF'
-To publish the Docker documentation you need to set your access_key and secret_key in the docs/awsconfig file 
+To publish the Docker documentation you need to set your access_key and secret_key in the docs/awsconfig file
 (with the keys in a [profile $AWS_S3_BUCKET] section - so you can have more than one set of keys in your file)
 and set the AWS_S3_BUCKET env var to the name of your bucket.
 
@@ -22,10 +22,17 @@ EOF
 }
 
 create_robots_txt() {
-	cat > ./sources/robots.txt <<'EOF'
-User-agent: *
-Disallow: /
-EOF
+	if [ "$AWS_S3_BUCKET" == "docs.docker.com" ]; then
+		cat > ./sources/robots.txt <<-'EOF'
+		User-agent: *
+		Allow: /
+		EOF
+	else
+		cat > ./sources/robots.txt <<-'EOF'
+		User-agent: *
+		Disallow: /
+		EOF
+	fi
 }
 
 setup_s3() {

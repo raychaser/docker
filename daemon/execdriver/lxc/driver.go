@@ -16,11 +16,12 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/execdriver"
+	"github.com/docker/docker/pkg/stringutils"
 	sysinfo "github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/term"
-	"github.com/docker/docker/utils"
+	"github.com/docker/docker/pkg/version"
 	"github.com/docker/libcontainer"
 	"github.com/docker/libcontainer/cgroups"
 	"github.com/docker/libcontainer/configs"
@@ -35,6 +36,7 @@ var ErrExec = errors.New("Unsupported: Exec is not supported by the lxc driver")
 
 type driver struct {
 	root             string // root path for the driver to use
+	libPath          string
 	initPath         string
 	apparmor         bool
 	sharedRoot       bool
@@ -48,7 +50,10 @@ type activeContainer struct {
 	cmd       *exec.Cmd
 }
 
-func NewDriver(root, initPath string, apparmor bool) (*driver, error) {
+func NewDriver(root, libPath, initPath string, apparmor bool) (*driver, error) {
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return nil, err
+	}
 	// setup unconfined symlink
 	if err := linkLxcStart(root); err != nil {
 		return nil, err
@@ -60,6 +65,7 @@ func NewDriver(root, initPath string, apparmor bool) (*driver, error) {
 	return &driver{
 		apparmor:         apparmor,
 		root:             root,
+		libPath:          libPath,
 		initPath:         initPath,
 		sharedRoot:       rootIsShared(),
 		activeContainers: make(map[string]*activeContainer),
@@ -115,6 +121,13 @@ func (d *driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 		"-n", c.ID,
 		"-f", configPath,
 	}
+
+	// From lxc>=1.1 the default behavior is to daemonize containers after start
+	lxcVersion := version.Version(d.version())
+	if lxcVersion.GreaterThanOrEqualTo(version.Version("1.1")) {
+		params = append(params, "-F")
+	}
+
 	if c.Network.ContainerID != "" {
 		params = append(params,
 			"--share-net", c.Network.ContainerID,
@@ -174,13 +187,13 @@ func (d *driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 		// without exec in go we have to do this horrible shell hack...
 		shellString :=
 			"mount --make-rslave /; exec " +
-				utils.ShellQuoteArguments(params)
+				stringutils.ShellQuoteArguments(params)
 
 		params = []string{
 			"unshare", "-m", "--", "/bin/sh", "-c", shellString,
 		}
 	}
-	log.Debugf("lxc params %s", params)
+	logrus.Debugf("lxc params %s", params)
 	var (
 		name = params[0]
 		arg  = params[1:]
@@ -250,7 +263,7 @@ func (d *driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 	c.ContainerPid = pid
 
 	if startCallback != nil {
-		log.Debugf("Invoking startCallback")
+		logrus.Debugf("Invoking startCallback")
 		startCallback(&c.ProcessConfig, pid)
 	}
 
@@ -261,9 +274,9 @@ func (d *driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 
 	if err == nil {
 		_, oomKill = <-oomKillNotification
-		log.Debugf("oomKill error %s waitErr %s", oomKill, waitErr)
+		logrus.Debugf("oomKill error %s waitErr %s", oomKill, waitErr)
 	} else {
-		log.Warnf("Your kernel does not support OOM notifications: %s", err)
+		logrus.Warnf("Your kernel does not support OOM notifications: %s", err)
 	}
 
 	// check oom error
@@ -338,11 +351,11 @@ func cgroupPaths(containerId string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("subsystems: %s", subsystems)
+	logrus.Debugf("subsystems: %s", subsystems)
 	paths := make(map[string]string)
 	for _, subsystem := range subsystems {
 		cgroupRoot, cgroupDir, err := findCgroupRootAndDir(subsystem)
-		log.Debugf("cgroup path %s %s", cgroupRoot, cgroupDir)
+		logrus.Debugf("cgroup path %s %s", cgroupRoot, cgroupDir)
 		if err != nil {
 			//unsupported subystem
 			continue
@@ -563,7 +576,7 @@ func (i *info) IsRunning() bool {
 
 	output, err := i.driver.getInfo(i.ID)
 	if err != nil {
-		log.Errorf("Error getting info for lxc container %s: %s (%s)", i.ID, err, output)
+		logrus.Errorf("Error getting info for lxc container %s: %s (%s)", i.ID, err, output)
 		return false
 	}
 	if strings.Contains(string(output), "RUNNING") {
@@ -658,7 +671,7 @@ func rootIsShared() bool {
 }
 
 func (d *driver) containerDir(containerId string) string {
-	return path.Join(d.root, "containers", containerId)
+	return path.Join(d.libPath, "containers", containerId)
 }
 
 func (d *driver) generateLXCConfig(c *execdriver.Command) (string, error) {
@@ -688,7 +701,7 @@ func (d *driver) generateEnvConfig(c *execdriver.Command) error {
 	if err != nil {
 		return err
 	}
-	p := path.Join(d.root, "containers", c.ID, "config.env")
+	p := path.Join(d.libPath, "containers", c.ID, "config.env")
 	c.Mounts = append(c.Mounts, execdriver.Mount{
 		Source:      p,
 		Destination: "/.dockerenv",
@@ -780,5 +793,8 @@ func (d *driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessCo
 }
 
 func (d *driver) Stats(id string) (*execdriver.ResourceStats, error) {
+	if _, ok := d.activeContainers[id]; !ok {
+		return nil, fmt.Errorf("%s is not a key in active containers", id)
+	}
 	return execdriver.Stats(d.containerDir(id), d.activeContainers[id].container.Cgroups.Memory, d.machineMemory)
 }

@@ -29,17 +29,17 @@ func TestLXCConfig(t *testing.T) {
 	os.MkdirAll(path.Join(root, "containers", "1"), 0777)
 
 	// Memory is allocated randomly for testing
-	rand.Seed(time.Now().UTC().UnixNano())
+	r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
 	var (
 		memMin = 33554432
 		memMax = 536870912
-		mem    = memMin + rand.Intn(memMax-memMin)
+		mem    = memMin + r.Intn(memMax-memMin)
 		cpuMin = 100
 		cpuMax = 10000
-		cpu    = cpuMin + rand.Intn(cpuMax-cpuMin)
+		cpu    = cpuMin + r.Intn(cpuMax-cpuMin)
 	)
 
-	driver, err := NewDriver(root, "", false)
+	driver, err := NewDriver(root, root, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestCustomLxcConfig(t *testing.T) {
 
 	os.MkdirAll(path.Join(root, "containers", "1"), 0777)
 
-	driver, err := NewDriver(root, "", false)
+	driver, err := NewDriver(root, root, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestCustomLxcConfigMounts(t *testing.T) {
 	}
 	os.MkdirAll(path.Join(root, "containers", "1"), 0777)
 
-	driver, err := NewDriver(root, "", false)
+	driver, err := NewDriver(root, root, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestCustomLxcConfigMisc(t *testing.T) {
 	}
 	defer os.RemoveAll(root)
 	os.MkdirAll(path.Join(root, "containers", "1"), 0777)
-	driver, err := NewDriver(root, "", true)
+	driver, err := NewDriver(root, root, "", true)
 
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ func TestCustomLxcConfigMiscOverride(t *testing.T) {
 	}
 	defer os.RemoveAll(root)
 	os.MkdirAll(path.Join(root, "containers", "1"), 0777)
-	driver, err := NewDriver(root, "", false)
+	driver, err := NewDriver(root, root, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}

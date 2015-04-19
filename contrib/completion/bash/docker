@@ -22,7 +22,7 @@
 # must have access to the socket for the completions to function correctly
 #
 # Note for developers:
-# Please arrange options sorted alphabetically by long name with the short 
+# Please arrange options sorted alphabetically by long name with the short
 # options immediately following their corresponding long form.
 # This order should be applied to lists, alternatives and code blocks.
 
@@ -56,6 +56,18 @@ __docker_containers_pauseable() {
 
 __docker_containers_unpauseable() {
 	__docker_containers_all '.State.Paused'
+}
+
+__docker_container_names() {
+	local containers=( $(__docker_q ps -aq --no-trunc) )
+	local names=( $(__docker_q inspect --format '{{.Name}}' "${containers[@]}") )
+	names=( "${names[@]#/}" ) # trim off the leading "/" from the container names
+	COMPREPLY=( $(compgen -W "${names[*]}" -- "$cur") )
+}
+
+__docker_container_ids() {
+	local containers=( $(__docker_q ps -aq) )
+	COMPREPLY=( $(compgen -W "${containers[*]}" -- "$cur") )
 }
 
 __docker_image_repos() {
@@ -208,6 +220,10 @@ _docker_docker() {
 			_filedir -d
 			return
 			;;
+		--log-driver)
+			COMPREPLY=( $( compgen -W "json-file syslog none" -- "$cur" ) )
+			return
+			;;
 		--log-level|-l)
 			COMPREPLY=( $( compgen -W "debug info warn error fatal" -- "$cur" ) )
 			return
@@ -257,13 +273,13 @@ _docker_build() {
 			;;
 		--file|-f)
 			_filedir
-			return	
-			;;	
+			return
+			;;
 	esac
 
 	case "$cur" in
 		-*)
-			COMPREPLY=( $( compgen -W "--file -f --force-rm --help --no-cache --pull --quiet -q --rm --tag -t" -- "$cur" ) )
+			COMPREPLY=( $( compgen -W "--cpu-shares -c --cpuset-cpus --cpu-quota --file -f --force-rm --help --memory -m --memory-swap --no-cache --pull --quiet -q --rm --tag -t" -- "$cur" ) )
 			;;
 		*)
 			local counter="$(__docker_pos_first_nonflag '--tag|-t')"
@@ -391,7 +407,7 @@ _docker_events() {
 _docker_exec() {
 	case "$cur" in
 		-*)
-			COMPREPLY=( $( compgen -W "--detach -d --help --interactive -i -t --tty" -- "$cur" ) )
+			COMPREPLY=( $( compgen -W "--detach -d --help --interactive -i --privileged -t --tty -u --user" -- "$cur" ) )
 			;;
 		*)
 			__docker_containers_running
@@ -437,7 +453,10 @@ _docker_history() {
 _docker_images() {
 	case "$prev" in
 		--filter|-f)
-			COMPREPLY=( $( compgen -W "dangling=true" -- "$cur" ) )
+			COMPREPLY=( $( compgen -W "dangling=true label=" -- "$cur" ) )
+			if [ "$COMPREPLY" = "label=" ]; then
+				compopt -o nospace
+			fi
 			return
 			;;
 	esac
@@ -447,17 +466,20 @@ _docker_images() {
 			COMPREPLY=( $( compgen -W "true false" -- "${cur#=}" ) )
 			return
 			;;
+		*label=*)
+			return
+			;;
 	esac
 
 	case "$cur" in
 		-*)
-			COMPREPLY=( $( compgen -W "--all -a --filter -f --help --no-trunc --quiet -q" -- "$cur" ) )
+			COMPREPLY=( $( compgen -W "--all -a --digests --filter -f --help --no-trunc --quiet -q" -- "$cur" ) )
+			;;
+		=)
+			return
 			;;
 		*)
-			local counter=$(__docker_pos_first_nonflag)
-			if [ $cword -eq $counter ]; then
-				__docker_image_repos
-			fi
+			__docker_image_repos
 			;;
 	esac
 }
@@ -616,7 +638,7 @@ _docker_ps() {
 			__docker_containers_all
 			;;
 		--filter|-f)
-			COMPREPLY=( $( compgen -S = -W "exited status" -- "$cur" ) )
+			COMPREPLY=( $( compgen -S = -W "exited id label name status" -- "$cur" ) )
 			compopt -o nospace
 			return
 			;;
@@ -626,6 +648,16 @@ _docker_ps() {
 	esac
 
 	case "${words[$cword-2]}$prev=" in
+		*id=*)
+			cur="${cur#=}"
+			__docker_container_ids
+			return
+			;;
+		*name=*)
+			cur="${cur#=}"
+			__docker_container_names
+			return
+			;;
 		*status=*)
 			COMPREPLY=( $( compgen -W "exited paused restarting running" -- "${cur#=}" ) )
 			return
@@ -734,9 +766,11 @@ _docker_run() {
 		--attach -a
 		--cap-add
 		--cap-drop
+		--cgroup-parent
 		--cidfile
 		--cpuset
 		--cpu-shares -c
+		--cpu-quota
 		--device
 		--dns
 		--dns-search
@@ -746,7 +780,10 @@ _docker_run() {
 		--expose
 		--hostname -h
 		--ipc
+		--label -l
+		--label-file
 		--link
+		--log-driver
 		--lxc-conf
 		--mac-address
 		--memory -m
@@ -798,7 +835,7 @@ _docker_run() {
 			__docker_capabilities
 			return
 			;;
-		--cidfile|--env-file)
+		--cidfile|--env-file|--label-file)
 			_filedir
 			return
 			;;
@@ -848,6 +885,10 @@ _docker_run() {
 					compopt -o nospace
 					;;
 			esac
+			return
+			;;
+		--log-driver)
+			COMPREPLY=( $( compgen -W "json-file syslog none" -- "$cur") )
 			return
 			;;
 		--net)
@@ -1118,6 +1159,7 @@ _docker() {
 		--insecure-registry
 		--ip
 		--label
+		--log-driver
 		--log-level -l
 		--mtu
 		--pidfile -p

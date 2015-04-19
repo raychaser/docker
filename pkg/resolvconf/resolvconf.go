@@ -1,3 +1,4 @@
+// Package resolvconf provides utility code to query and update DNS configuration in /etc/resolv.conf
 package resolvconf
 
 import (
@@ -7,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/docker/docker/utils"
+	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/pkg/ioutils"
 )
 
 var (
@@ -38,6 +39,7 @@ var lastModified struct {
 	contents []byte
 }
 
+// Get returns the contents of /etc/resolv.conf
 func Get() ([]byte, error) {
 	resolv, err := ioutil.ReadFile("/etc/resolv.conf")
 	if err != nil {
@@ -46,7 +48,7 @@ func Get() ([]byte, error) {
 	return resolv, nil
 }
 
-// Retrieves the host /etc/resolv.conf file, checks against the last hash
+// GetIfChanged retrieves the host /etc/resolv.conf file, checks against the last hash
 // and, if modified since last check, returns the bytes and new hash.
 // This feature is used by the resolv.conf updater for containers
 func GetIfChanged() ([]byte, string, error) {
@@ -57,7 +59,7 @@ func GetIfChanged() ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	newHash, err := utils.HashData(bytes.NewReader(resolv))
+	newHash, err := ioutils.HashData(bytes.NewReader(resolv))
 	if err != nil {
 		return nil, "", err
 	}
@@ -70,7 +72,7 @@ func GetIfChanged() ([]byte, string, error) {
 	return nil, "", nil
 }
 
-// retrieve the last used contents and hash of the host resolv.conf
+// GetLastModified retrieves the last used contents and hash of the host resolv.conf.
 // Used by containers updating on restart
 func GetLastModified() ([]byte, string) {
 	lastModified.Lock()
@@ -79,14 +81,14 @@ func GetLastModified() ([]byte, string) {
 	return lastModified.contents, lastModified.sha256
 }
 
-// FilterResolvDns has two main jobs:
+// FilterResolvDns cleans up the config in resolvConf.  It has two main jobs:
 // 1. It looks for localhost (127.*|::1) entries in the provided
 //    resolv.conf, removing local nameserver entries, and, if the resulting
 //    cleaned config has no defined nameservers left, adds default DNS entries
 // 2. Given the caller provides the enable/disable state of IPv6, the filter
 //    code will remove all IPv6 nameservers if it is not enabled for containers
 //
-// It also returns a boolean to notify the caller if changes were made at all
+// It returns a boolean to notify the caller if changes were made at all
 func FilterResolvDns(resolvConf []byte, ipv6Enabled bool) ([]byte, bool) {
 	changed := false
 	cleanedResolvConf := localhostNSRegexp.ReplaceAll(resolvConf, []byte{})
@@ -97,10 +99,10 @@ func FilterResolvDns(resolvConf []byte, ipv6Enabled bool) ([]byte, bool) {
 	// if the resulting resolvConf has no more nameservers defined, add appropriate
 	// default DNS servers for IPv4 and (optionally) IPv6
 	if len(GetNameservers(cleanedResolvConf)) == 0 {
-		log.Infof("No non-localhost DNS nameservers are left in resolv.conf. Using default external servers : %v", defaultIPv4Dns)
+		logrus.Infof("No non-localhost DNS nameservers are left in resolv.conf. Using default external servers : %v", defaultIPv4Dns)
 		dns := defaultIPv4Dns
 		if ipv6Enabled {
-			log.Infof("IPv6 enabled; Adding default IPv6 external servers : %v", defaultIPv6Dns)
+			logrus.Infof("IPv6 enabled; Adding default IPv6 external servers : %v", defaultIPv6Dns)
 			dns = append(dns, defaultIPv6Dns...)
 		}
 		cleanedResolvConf = append(cleanedResolvConf, []byte("\n"+strings.Join(dns, "\n"))...)
@@ -126,7 +128,7 @@ func getLines(input []byte, commentMarker []byte) [][]byte {
 	return output
 }
 
-// returns true if the IP string matches the localhost IP regular expression.
+// IsLocalhost returns true if ip matches the localhost IP regular expression.
 // Used for determining if nameserver settings are being passed which are
 // localhost addresses
 func IsLocalhost(ip string) bool {
@@ -171,6 +173,9 @@ func GetSearchDomains(resolvConf []byte) []string {
 	return domains
 }
 
+// Build writes a configuration file to path containing a "nameserver" entry
+// for every element in dns, and a "search" entry for every element in
+// dnsSearch.
 func Build(path string, dns, dnsSearch []string) error {
 	content := bytes.NewBuffer(nil)
 	for _, dns := range dns {

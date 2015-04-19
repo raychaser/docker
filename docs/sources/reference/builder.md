@@ -1,8 +1,8 @@
-page_title: Dockerfile Reference
+page_title: Dockerfile reference
 page_description: Dockerfiles use a simple DSL which allows you to automate the steps you would normally manually take to create an image.
 page_keywords: builder, docker, Dockerfile, automation, image creation
 
-# Dockerfile Reference
+# Dockerfile reference
 
 **Docker can build images automatically** by reading the instructions
 from a `Dockerfile`. A `Dockerfile` is a text document that contains all
@@ -26,7 +26,7 @@ This file will describe the steps to assemble the image.
 Then call `docker build` with the path of your source repository as the argument
 (for example, `.`):
 
-    $ sudo docker build .
+    $ docker build .
 
 The path to the source repository defines where to find the *context* of
 the build. The build is run by the Docker daemon, not by the CLI, so the
@@ -49,7 +49,7 @@ directory.
 You can specify a repository and tag at which to save the new image if
 the build succeeds:
 
-    $ sudo docker build -t shykes/myapp .
+    $ docker build -t shykes/myapp .
 
 The Docker daemon will run your steps one-by-one, committing the result
 to a new image if necessary, before finally outputting the ID of your
@@ -65,7 +65,7 @@ accelerating `docker build` significantly (indicated by `Using cache` -
 see the [`Dockerfile` Best Practices
 guide](/articles/dockerfile_best-practices/#build-cache) for more information):
 
-    $ sudo docker build -t SvenDowideit/ambassador .
+    $ docker build -t SvenDowideit/ambassador .
     Uploading context 10.24 kB
     Uploading context
     Step 1 : FROM docker-ut
@@ -105,7 +105,7 @@ be treated as an argument. This allows statements like:
 Here is the set of instructions you can use in a `Dockerfile` for building
 images.
 
-### Environment Replacement
+### Environment replacement
 
 > **Note**: prior to 1.3, `Dockerfile` environment variables were handled
 > similarly, in that they would be replaced as described below. However, there
@@ -113,18 +113,30 @@ images.
 > replacement at the time. After 1.3 this behavior will be preserved and
 > canonical.
 
-Environment variables (declared with [the `ENV` statement](#env)) can also be used in
-certain instructions as variables to be interpreted by the `Dockerfile`. Escapes
-are also handled for including variable-like syntax into a statement literally.
+Environment variables (declared with [the `ENV` statement](#env)) can also be
+used in certain instructions as variables to be interpreted by the
+`Dockerfile`. Escapes are also handled for including variable-like syntax
+into a statement literally.
 
 Environment variables are notated in the `Dockerfile` either with
 `$variable_name` or `${variable_name}`. They are treated equivalently and the
 brace syntax is typically used to address issues with variable names with no
 whitespace, like `${foo}_bar`.
 
+The `${variable_name}` syntax also supports a few of the standard `bash`
+modifiers as specified below:
+
+* `${variable:-word}` indicates that if `variable` is set then the result
+  will be that value. If `variable` is not set then `word` will be the result.
+* `${variable:+word}` indiates that if `variable` is set then `word` will be
+  the result, otherwise the result is the empty string.
+
+In all cases, `word` can be any string, including additional environment
+variables.
+
 Escaping is possible by adding a `\` before the variable: `\$foo` or `\${foo}`,
 for example, will translate to `$foo` and `${foo}` literals respectively.
- 
+
 Example (parsed representation is displayed after the `#`):
 
     FROM busybox
@@ -168,14 +180,14 @@ that will be excluded from the context. Globbing is done using Go's
 > **Note**:
 > The `.dockerignore` file can even be used to ignore the `Dockerfile` and
 > `.dockerignore` files. This might be useful if you are copying files from
-> the root of the build context into your new containter but do not want to 
+> the root of the build context into your new container but do not want to 
 > include the `Dockerfile` or `.dockerignore` files (e.g. `ADD . /someDir/`).
 
 The following example shows the use of the `.dockerignore` file to exclude the
 `.git` directory from the context. Its effect can be seen in the changed size of
 the uploaded context.
 
-    $ sudo docker build .
+    $ docker build .
     Uploading context 18.829 MB
     Uploading context
     Step 0 : FROM busybox
@@ -185,7 +197,7 @@ the uploaded context.
      ---> 99cc1ad10469
     Successfully built 99cc1ad10469
     $ echo ".git" > .dockerignore
-    $ sudo docker build .
+    $ docker build .
     Uploading context  6.76 MB
     Uploading context
     Step 0 : FROM busybox
@@ -276,12 +288,18 @@ guide](/articles/dockerfile_best-practices/#build-cache) for more information.
 The cache for `RUN` instructions can be invalidated by `ADD` instructions. See
 [below](#add) for details.
 
-### Known Issues (RUN)
+### Known issues (RUN)
 
 - [Issue 783](https://github.com/docker/docker/issues/783) is about file
   permissions problems that can occur when using the AUFS file system. You
-  might notice it during an attempt to `rm` a file, for example. The issue
-  describes a workaround.
+  might notice it during an attempt to `rm` a file, for example.
+
+  For systems that have recent aufs version (i.e., `dirperm1` mount option can
+  be set), docker will attempt to fix the issue automatically by mounting
+  the layers with `dirperm1` option. More details on `dirperm1` option can be
+  found at [`aufs` man page](http://aufs.sourceforge.net/aufs3/man.html)
+
+  If your system doesnt have support for `dirperm1`, the issue describes a workaround.
 
 ## CMD
 
@@ -355,9 +373,8 @@ blackslashes as you would in command-line parsing.
     LABEL "com.example.vendor"="ACME Incorporated"
 
 An image can have more than one label. To specify multiple labels, separate each
-key-value pair by an EOL.
+key-value pair with whitespace.
 
-    LABEL com.example.label-without-value
     LABEL com.example.label-with-value="foo"
     LABEL version="1.0"
     LABEL description="This text illustrates \
@@ -367,12 +384,24 @@ Docker recommends combining labels in a single `LABEL` instruction where
 possible. Each `LABEL` instruction produces a new layer which can result in an
 inefficient image if you use many labels. This example results in four image
 layers. 
+
+    LABEL multi.label1="value1" multi.label2="value2" other="value3"
     
 Labels are additive including `LABEL`s in `FROM` images. As the system
 encounters and then applies a new label, new `key`s override any previous labels
 with identical keys.    
 
 To view an image's labels, use the `docker inspect` command.
+
+    "Labels": {
+        "com.example.vendor": "ACME Incorporated"
+        "com.example.label-with-value": "foo",
+        "version": "1.0",
+        "description": "This text illustrates that label-values can span multiple lines.",
+        "multi.label1": "value1",
+        "multi.label2": "value2",
+        "other": "value3"
+    },
 
 ## EXPOSE
 
@@ -944,7 +973,7 @@ For example you might add something like this:
 
 > **Warning**: The `ONBUILD` instruction may not trigger `FROM` or `MAINTAINER` instructions.
 
-## Dockerfile Examples
+## Dockerfile examples
 
     # Nginx
     #

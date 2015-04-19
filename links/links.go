@@ -2,10 +2,12 @@ package links
 
 import (
 	"fmt"
-	"github.com/docker/docker/engine"
-	"github.com/docker/docker/nat"
 	"path"
 	"strings"
+
+	"github.com/docker/docker/daemon/networkdriver/bridge"
+	"github.com/docker/docker/nat"
+	"github.com/docker/docker/pkg/iptables"
 )
 
 type Link struct {
@@ -15,10 +17,9 @@ type Link struct {
 	ChildEnvironment []string
 	Ports            []nat.Port
 	IsEnabled        bool
-	eng              *engine.Engine
 }
 
-func NewLink(parentIP, childIP, name string, env []string, exposedPorts map[nat.Port]struct{}, eng *engine.Engine) (*Link, error) {
+func NewLink(parentIP, childIP, name string, env []string, exposedPorts map[nat.Port]struct{}) (*Link, error) {
 
 	var (
 		i     int
@@ -36,7 +37,6 @@ func NewLink(parentIP, childIP, name string, env []string, exposedPorts map[nat.
 		ParentIP:         parentIP,
 		ChildEnvironment: env,
 		Ports:            ports,
-		eng:              eng,
 	}
 	return l, nil
 
@@ -144,6 +144,8 @@ func (l *Link) Enable() error {
 	if err := l.toggle("-A", false); err != nil {
 		return err
 	}
+	// call this on Firewalld reload
+	iptables.OnReloaded(func() { l.toggle("-I", false) })
 	l.IsEnabled = true
 	return nil
 }
@@ -153,26 +155,11 @@ func (l *Link) Disable() {
 	// exist in iptables
 	// -D == iptables delete flag
 	l.toggle("-D", true)
-
+	// call this on Firewalld reload
+	iptables.OnReloaded(func() { l.toggle("-D", true) })
 	l.IsEnabled = false
 }
 
 func (l *Link) toggle(action string, ignoreErrors bool) error {
-	job := l.eng.Job("link", action)
-
-	job.Setenv("ParentIP", l.ParentIP)
-	job.Setenv("ChildIP", l.ChildIP)
-	job.SetenvBool("IgnoreErrors", ignoreErrors)
-
-	out := make([]string, len(l.Ports))
-	for i, p := range l.Ports {
-		out[i] = string(p)
-	}
-	job.SetenvList("Ports", out)
-
-	if err := job.Run(); err != nil {
-		// TODO: get ouput from job
-		return err
-	}
-	return nil
+	return bridge.LinkContainers(action, l.ParentIP, l.ChildIP, l.Ports, ignoreErrors)
 }

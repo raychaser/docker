@@ -1,4 +1,4 @@
-page_title: Best Practices for Writing Dockerfiles
+page_title: Best practices for writing Dockerfiles
 page_description: Hints, tips and guidelines for writing clean, reliable Dockerfiles
 page_keywords: Examples, Usage, base image, docker, documentation, dockerfile, best practices, hub, official repo
 
@@ -398,7 +398,15 @@ troubleshoot, and maintain.
 
 ### [`ONBUILD`](https://docs.docker.com/reference/builder/#onbuild)
 
-`ONBUILD` is only useful for images that are going to be built `FROM` a given
+An `ONBUILD` command executes after the current `Dockerfile` build completes.
+`ONBUILD` executes in any child image derived `FROM` the current image.  Think
+of the `ONBUILD` command as an instruction the parent `Dockerfile` gives
+to the child `Dockerfile`.
+
+A Docker build executes `ONBUILD` commands before any command in a child
+`Dockerfile`.
+
+`ONBUILD` is useful for images that are going to be built `FROM` a given
 image. For example, you would use `ONBUILD` for a language stack image that
 builds arbitrary user software written in that language within the
 `Dockerfile`, as you can see in [Ruby’s `ONBUILD` variants](https://github.com/docker-library/ruby/blob/master/2.1/onbuild/Dockerfile). 
@@ -411,7 +419,7 @@ fail catastrophically if the new build's context is missing the resource being
 added. Adding a separate tag, as recommended above, will help mitigate this by
 allowing the `Dockerfile` author to make a choice.
 
-## Examples For Official Repositories
+## Examples for official repositories
 
 These Official Repos have exemplary `Dockerfile`s:
 
@@ -420,7 +428,7 @@ These Official Repos have exemplary `Dockerfile`s:
 * [Hy](https://registry.hub.docker.com/_/hylang/)
 * [Rails](https://registry.hub.docker.com/_/rails)
 
-## Additional Resources:
+## Additional resources:
 
 * [Dockerfile Reference](https://docs.docker.com/reference/builder/#onbuild)
 * [More about Base Images](https://docs.docker.com/articles/baseimages/)

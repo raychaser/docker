@@ -26,17 +26,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/builder/command"
 	"github.com/docker/docker/builder/parser"
+	"github.com/docker/docker/cliconfig"
 	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/engine"
-	"github.com/docker/docker/pkg/common"
 	"github.com/docker/docker/pkg/fileutils"
+	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/symlink"
 	"github.com/docker/docker/pkg/tarsum"
-	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/utils"
 )
@@ -79,7 +79,6 @@ func init() {
 // processing as it evaluates the parsing result.
 type Builder struct {
 	Daemon *daemon.Daemon
-	Engine *engine.Engine
 
 	// effectively stdio for the run. Because it is not stdio, I said
 	// "Effectively". Do not use stdio anywhere in this package for any reason.
@@ -100,12 +99,12 @@ type Builder struct {
 	// the final configs of the Dockerfile but dont want the layers
 	disableCommit bool
 
-	AuthConfig     *registry.AuthConfig
-	AuthConfigFile *registry.ConfigFile
+	AuthConfig *cliconfig.AuthConfig
+	ConfigFile *cliconfig.ConfigFile
 
 	// Deprecated, original writer used for ImagePull. To be removed.
 	OutOld          io.Writer
-	StreamFormatter *utils.StreamFormatter
+	StreamFormatter *streamformatter.StreamFormatter
 
 	Config *runconfig.Config // runconfig for cmd, run, entrypoint etc.
 
@@ -123,7 +122,9 @@ type Builder struct {
 
 	// Set resource restrictions for build containers
 	cpuSetCpus string
+	cpuSetMems string
 	cpuShares  int64
+	cpuQuota   int64
 	memory     int64
 	memorySwap int64
 
@@ -149,7 +150,7 @@ func (b *Builder) Run(context io.Reader) (string, error) {
 
 	defer func() {
 		if err := os.RemoveAll(b.contextPath); err != nil {
-			log.Debugf("[BUILDER] failed to remove temporary context: %s", err)
+			logrus.Debugf("[BUILDER] failed to remove temporary context: %s", err)
 		}
 	}()
 
@@ -165,7 +166,7 @@ func (b *Builder) Run(context io.Reader) (string, error) {
 	for i, n := range b.dockerfile.Children {
 		select {
 		case <-b.cancelled:
-			log.Debug("Builder: build cancelled!")
+			logrus.Debug("Builder: build cancelled!")
 			fmt.Fprintf(b.OutStream, "Build cancelled")
 			return "", fmt.Errorf("Build cancelled")
 		default:
@@ -177,7 +178,7 @@ func (b *Builder) Run(context io.Reader) (string, error) {
 			}
 			return "", err
 		}
-		fmt.Fprintf(b.OutStream, " ---> %s\n", common.TruncateID(b.image))
+		fmt.Fprintf(b.OutStream, " ---> %s\n", stringid.TruncateID(b.image))
 		if b.Remove {
 			b.clearTmp()
 		}
@@ -187,7 +188,7 @@ func (b *Builder) Run(context io.Reader) (string, error) {
 		return "", fmt.Errorf("No image was generated. Is your Dockerfile empty?")
 	}
 
-	fmt.Fprintf(b.OutStream, "Successfully built %s\n", common.TruncateID(b.image))
+	fmt.Fprintf(b.OutStream, "Successfully built %s\n", stringid.TruncateID(b.image))
 	return b.image, nil
 }
 

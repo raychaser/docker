@@ -40,13 +40,14 @@ type network struct {
 
 // initConfig is used for transferring parameters from Exec() to Init()
 type initConfig struct {
-	Args     []string        `json:"args"`
-	Env      []string        `json:"env"`
-	Cwd      string          `json:"cwd"`
-	User     string          `json:"user"`
-	Config   *configs.Config `json:"config"`
-	Console  string          `json:"console"`
-	Networks []*network      `json:"network"`
+	Args         []string        `json:"args"`
+	Env          []string        `json:"env"`
+	Cwd          string          `json:"cwd"`
+	Capabilities []string        `json:"capabilities"`
+	User         string          `json:"user"`
+	Config       *configs.Config `json:"config"`
+	Console      string          `json:"console"`
+	Networks     []*network      `json:"network"`
 }
 
 type initer interface {
@@ -68,7 +69,8 @@ func newContainerInit(t initType, pipe *os.File) (initer, error) {
 		}, nil
 	case initStandard:
 		return &linuxStandardInit{
-			config: config,
+			parentPid: syscall.Getppid(),
+			config:    config,
 		}, nil
 	}
 	return nil, fmt.Errorf("unknown init type %q", t)
@@ -91,7 +93,7 @@ func populateProcessEnvironment(env []string) error {
 
 // finalizeNamespace drops the caps, sets the correct user
 // and working dir, and closes any leaked file descriptors
-// before execing the command inside the namespace
+// before executing the command inside the namespace
 func finalizeNamespace(config *initConfig) error {
 	// Ensure that all non-standard fds we may have accidentally
 	// inherited are marked close-on-exec so they stay out of the
@@ -99,7 +101,12 @@ func finalizeNamespace(config *initConfig) error {
 	if err := utils.CloseExecFrom(3); err != nil {
 		return err
 	}
-	w, err := newCapWhitelist(config.Config.Capabilities)
+
+	capabilities := config.Config.Capabilities
+	if config.Capabilities != nil {
+		capabilities = config.Capabilities
+	}
+	w, err := newCapWhitelist(capabilities)
 	if err != nil {
 		return err
 	}
