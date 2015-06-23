@@ -1,2 +1,2 @@
 Christian Beedgen
-Boston Logan International Airport
+Day of the June board of directors meeting
